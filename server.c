@@ -78,7 +78,7 @@ int main (int argc, char *argv[])
   }
   
   // started ok
-  printf("Server started, awaiting connections\n");
+  printf("Server started on %d, awaiting connections\n", serv_addr.sin_port);
   
   // busy wait to accept clients
   while (1) {
@@ -257,41 +257,41 @@ void *handle_client (void *arg)
       char *command, *param;
       command = strtok(buff_in," ");
       if (!strcmp (command, "\\quit")) // want to quit, break the read loop
-  break;
+	break;
       else if (!strcmp (command, "\\ping")) // ping yourself
-  send_message_self("pong ;)\r\n", cli->connfd);
+	send_message_self("pong ;)\r\n", cli->connfd);
       else if(!strcmp (command, "\\name")) { // change name
-  param = strtok(NULL, " ");
-  if (param) {
-    char *old_name = strdup (cli->name);
-    strcpy (cli->name, param);
-    sprintf (buff_out, "%s is now going by %s\r\n", old_name, cli->name);
-    free (old_name);
-    send_message_all (buff_out);
-  }
-  else
-    send_message_self ("Response: Name cannot be null\r\n", cli->connfd);
+	param = strtok(NULL, " ");
+	if (param) {
+	  char *old_name = strdup (cli->name);
+	  strcpy (cli->name, param);
+	  sprintf (buff_out, "%s is now going by %s\r\n", old_name, cli->name);
+	  free (old_name);
+	  send_message_all (buff_out);
+	}
+	else
+	  send_message_self ("Response: Name cannot be null\r\n", cli->connfd);
       }
       else if (!strcmp (command, "\\private")) { // private message
-  param = strtok(NULL, " ");
-  if (param) {
-    int uid = atoi (param);
-    param = strtok (NULL, " ");
-    if (param) {
-      sprintf (buff_out, "[PM][%s]", cli->name);
-      while (param != NULL) {
-        strcat (buff_out, " ");
-        strcat (buff_out, param);
-        param = strtok (NULL, " ");
-      }
-      strcat (buff_out, "\r\n");
-      send_message_client (buff_out, uid);
-    }
-    else 
-      send_message_self ("Response: Message cannot be null\r\n", cli->connfd);
-  }
-  else
-    send_message_self ("Response: Reference cannot be null\r\n", cli->connfd);
+	param = strtok(NULL, " ");
+	if (param) {
+	  int uid = atoi (param);
+	  param = strtok (NULL, " ");
+	  if (param) {
+	    sprintf (buff_out, "[PM][%s]", cli->name);
+	    while (param != NULL) {
+	      strcat (buff_out, " ");
+	      strcat (buff_out, param);
+	      param = strtok (NULL, " ");
+	    }
+	    strcat (buff_out, "\r\n");
+	    send_message_client (buff_out, uid);
+	  }
+	  else 
+	    send_message_self ("Response: Message cannot be null\r\n", cli->connfd);
+	}
+	else
+	  send_message_self ("Response: Reference cannot be null\r\n", cli->connfd);
       }
       else if (!strcmp (command, "\\active")) { // print active clients
 	sprintf (buff_out, "%d connected client(s)\r\n", cli_count);
