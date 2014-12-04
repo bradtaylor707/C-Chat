@@ -121,22 +121,25 @@ int main (int argc, char *argv[])
     if (dupe == 0)
       pthread_create (&tid, NULL, &handle_client, (void*) cli);
     else {
-      //send message and kick
+      // close and tell to reconnect
       send_message_self ("Username was not unique. Please reconnect.\r\n", cli->connfd);
-      //kick (1, cli->uid); */
 
-      // do the same for now
-      pthread_create (&tid, NULL, &handle_client, (void*) cli);
+      printf ("Rejecting request from ");
+      print_client_addr (cli_addr);
+      printf (": Non-unique username entered.\n");
+
+      close (cli->connfd);
+      queue_delete (cli->uid);
+      free (cli);
     }
-      
- 
+
     // let cpu sleep
     sleep(1);
   }
 }
 
 
-// functions
+// begin functions
 
 // add a client to client array and set dupe flag if so
 void queue_add (client_t *cl, int * dupe) 
@@ -166,10 +169,9 @@ void queue_delete (int uid)
       }
 }
 
-/*
 void kick (const int auth, int uid)
 {
-  int low = 9;
+  int low = 50;
   int i;
   for (i = 0; i < cli_count; i++) {
     // get lowest auth
@@ -177,19 +179,20 @@ void kick (const int auth, int uid)
       low = auth;
   }
 
-  if (auth == 1 || auth == low) {
+  if (auth == low) {
     // ok to kick
     
   }
+  
   else {
     // send could not kick and return
-    close (->connfd);    
+    send_message_self ("Could not kick, insufficient privileges\r\n", auth);
     return;
   }
 
   
 }
-*/
+
 
 // send a message to all except sender
 void send_message (char *s, int uid) 
@@ -347,7 +350,7 @@ void *handle_client (void *arg)
 	
       }
 
-      else if(!strcmp (command, "\\lkick")) { // kick someone
+      else if(!strcmp (command, "\\kick")) { // kick someone
 	/*	param = strtok(NULL, " ");
 	if (param) {
 	  char *old_name = strdup (cli->name);
@@ -365,9 +368,9 @@ void *handle_client (void *arg)
 	strcat (buff_out, "\\quit     Quit chatroom\r\n");
 	strcat (buff_out, "\\ping     Server test\r\n");
 	strcat (buff_out, "\\name     <name> Change nickname\r\n");
-	strcat (buff_out, "\\pm  <reference> <message> Send private message\r\n");
+	strcat (buff_out, "\\pm       <name> <message> Send private message\r\n");
 	strcat (buff_out, "\\active   Show active clients\r\n");
-	//	strcat (buff_out, "\\kick     <name> Kick someone (requires admin)\r\n");
+	strcat (buff_out, "\\kick     <name> Kick someone (requires admin)\r\n");
 	strcat (buff_out, "\\help     Show help\r\n");
 	send_message_self (buff_out, cli->connfd);
       }
