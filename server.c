@@ -1,5 +1,6 @@
 // Brad Taylor
 // CS 450
+// December 2014
 
 #include <sys/socket.h>
 #include <netinet/in.h>
@@ -31,12 +32,14 @@ typedef struct {
 client_t *clients[MAX_CLIENTS];
 
 // function prototypes
-void queue_add (client_t *cl);
+void queue_add (client_t *cl, int * dupe);
 void queue_delete (int uid);
+void kick (int auth, int uid); 
 void send_message (char *s, int uid);
 void send_message_all (char *s);
 void send_message_self (const char *s, int connfd);
 void send_message_client (char *s, int uid);
+void send_message_name (char *s, char * name); 
 void send_active_clients (int connfd);
 void strip_newline(char *s);
 void print_client_addr (struct sockaddr_in addr);
@@ -45,7 +48,7 @@ void *handle_client (void *arg);
 
 int main (int argc, char *argv[])
 {
-  int listenfd = 0, connfd = 0;
+  int listenfd = 0, connfd = 0, portNum = 8910;
   struct sockaddr_in serv_addr;
   struct sockaddr_in cli_addr;
 
@@ -55,15 +58,15 @@ int main (int argc, char *argv[])
   pthread_t tid;
   
   // socket settings
-  listenfd = socket(AF_INET, SOCK_STREAM, 0);
+  listenfd = socket (AF_INET, SOCK_STREAM, 0);
   serv_addr.sin_family = AF_INET;
-  serv_addr.sin_addr.s_addr = htonl(INADDR_ANY);
-  if (argc > 1) {
-    int portNum = atoi (argv[1]);
-    serv_addr.sin_port = htons(portNum); 
-  }
-  else // default port 8910
-    serv_addr.sin_port = htons(8910); 
+  serv_addr.sin_addr.s_addr = htonl (INADDR_ANY);
+  
+  if (argc > 1)
+    portNum = atoi (argv[1]);
+  
+  // default port 8910
+  serv_addr.sin_port = htons(8910); 
   
   // bind
   if (bind (listenfd, (struct sockaddr*) &serv_addr, sizeof (serv_addr)) < 0) {
@@ -78,7 +81,7 @@ int main (int argc, char *argv[])
   }
   
   // started ok
-  printf("Server started on %d, awaiting connections\n", serv_addr.sin_port);
+  printf("Server started on %d, awaiting connections\n", portNum);
   
   // busy wait to accept clients
   while (1) {
@@ -88,32 +91,45 @@ int main (int argc, char *argv[])
     // check the amount of clients
     if ((cli_count + 1) == MAX_CLIENTS) {
       printf ("Maximum clients reached\n");
-      printf ("<<Rejecting request from ");
+      printf ("Rejecting request from ");
       print_client_addr (cli_addr);
       printf ("\n");
       close (connfd);
       continue;
     }
     
+
     // client settings
     client_t *cli = (client_t *) malloc (sizeof (client_t));
     cli->addr = cli_addr;
     cli->connfd = connfd;
     cli->uid = uid++;
 
+    send_message_self ("Connected!\r\n", cli->connfd);
+
     // get their name
     int rlen;
-    send_message_self ("Please enter a username\r\n", cli->connfd);
+    send_message_self ("Please enter a username:\r\n", cli->connfd);
     if ((rlen = read (cli->connfd, username, sizeof (username) - 1)) > 0) {
       username[rlen] = '\0';
       strip_newline(username);
       memcpy (cli->name, username, strlen (username) + 1);
     }    
-    
+    int dupe = 0;
     // add client to queue and fork the thread 
-    queue_add (cli);
-    pthread_create (&tid, NULL, &handle_client, (void*) cli);
-    
+    queue_add (cli, &dupe);
+    if (dupe == 0)
+      pthread_create (&tid, NULL, &handle_client, (void*) cli);
+    else {
+      //send message and kick
+      send_message_self ("Username was not unique. Please reconnect.\r\n", cli->connfd);
+      //kick (1, cli->uid); */
+
+      // do the same for now
+      pthread_create (&tid, NULL, &handle_client, (void*) cli);
+    }
+      
+ 
     // let cpu sleep
     sleep(1);
   }
@@ -122,26 +138,21 @@ int main (int argc, char *argv[])
 
 // functions
 
-// add a client to queue
-void queue_add (client_t *cl) 
+// add a client to client array and set dupe flag if so
+void queue_add (client_t *cl, int * dupe) 
 {
   int i;
+  for (i = 0; i < cli_count; i++)
+    if (!memcmp (clients[i]->name, cl->name, strlen (cl->name) + 1) && clients[i])
+      * dupe = 1;
   for (i = 0; i < MAX_CLIENTS; i++) {
-    if (clients[i]->name != cl->name) { // check names are not equal
-      if(!clients[i]) { // add to end of array
-  clients[i] = cl;
-  return;
-      }
-    }
-    else {
-      // were just gonna kick if not unique
-      send_message_self ("Username is not unique. Please reconnect and pick another.\n", cl->connfd);
-      close (cl->connfd);
-      cl = NULL;
-      free (cl);
+    if (!clients[i]) { // add to end of array
+      clients[i] = cl;
+      return;
     }
   }
 }
+
 
 // remove client from queue 
 void queue_delete (int uid) 
@@ -150,10 +161,35 @@ void queue_delete (int uid)
   for(i = 0;i < MAX_CLIENTS; i++)
     if (clients[i])
       if (clients[i]->uid == uid) {
-  clients[i] = NULL;
-  return;
+	clients[i] = NULL;
+	return;
       }
 }
+
+/*
+void kick (const int auth, int uid)
+{
+  int low = 9;
+  int i;
+  for (i = 0; i < cli_count; i++) {
+    // get lowest auth
+    if (auth < low)
+      low = auth;
+  }
+
+  if (auth == 1 || auth == low) {
+    // ok to kick
+    
+  }
+  else {
+    // send could not kick and return
+    close (->connfd);    
+    return;
+  }
+
+  
+}
+*/
 
 // send a message to all except sender
 void send_message (char *s, int uid) 
@@ -182,7 +218,7 @@ void send_message_self (const char *s, int connfd)
   write(connfd, s, strlen(s));
 }
 
-// send a pm to specific client
+// send a pm to specific client using uid
 void send_message_client (char *s, int uid) 
 {
   int i;
@@ -190,6 +226,16 @@ void send_message_client (char *s, int uid)
     if (clients[i])
       if (clients[i]->uid == uid)
   write(clients[i]->connfd, s, strlen(s));
+}
+
+// send a pm to specific client name 
+void send_message_name (char *s, char * name) 
+{
+  int i;
+  for (i = 0; i < cli_count; i++) 
+    if (clients[i])
+      if (!memcmp (clients[i]->name, name, strlen (name) + 1))
+	write(clients[i]->connfd, s, strlen(s));
 }
 
 // send a list of all active clients
@@ -272,13 +318,14 @@ void *handle_client (void *arg)
 	else
 	  send_message_self ("Response: Name cannot be null\r\n", cli->connfd);
       }
-      else if (!strcmp (command, "\\private")) { // private message
+      else if (!strcmp (command, "\\pm")) { // private message
 	param = strtok(NULL, " ");
 	if (param) {
+	  printf("%s", param);
 	  int uid = atoi (param);
-	  param = strtok (NULL, " ");
+	  param = strtok (NULL, " ");	  
 	  if (param) {
-	    sprintf (buff_out, "[PM][%s]", cli->name);
+	    sprintf (buff_out, "[PM][%s]", cli->name); // what they'll get
 	    while (param != NULL) {
 	      strcat (buff_out, " ");
 	      strcat (buff_out, param);
@@ -297,13 +344,30 @@ void *handle_client (void *arg)
 	sprintf (buff_out, "%d connected client(s)\r\n", cli_count);
 	send_message_self (buff_out, cli->connfd);
 	send_active_clients (cli->connfd);
+	
       }
+
+      else if(!strcmp (command, "\\lkick")) { // kick someone
+	/*	param = strtok(NULL, " ");
+	if (param) {
+	  char *old_name = strdup (cli->name);
+	  strcpy (cli->name, param);
+	  sprintf (buff_out, "%s is now going by %s\r\n", old_name, cli->name);
+	  free (old_name);
+	  send_message_all (buff_out);
+	}
+	else*/
+	send_message_self ("Response: Not yet implemented.\r\n", cli->connfd);
+      }
+      
+      
       else if (!strcmp (command, "\\help")) { // help menu
 	strcat (buff_out, "\\quit     Quit chatroom\r\n");
 	strcat (buff_out, "\\ping     Server test\r\n");
 	strcat (buff_out, "\\name     <name> Change nickname\r\n");
-	strcat (buff_out, "\\private  <reference> <message> Send private message\r\n");
+	strcat (buff_out, "\\pm  <reference> <message> Send private message\r\n");
 	strcat (buff_out, "\\active   Show active clients\r\n");
+	//	strcat (buff_out, "\\kick     <name> Kick someone (requires admin)\r\n");
 	strcat (buff_out, "\\help     Show help\r\n");
 	send_message_self (buff_out, cli->connfd);
       }
