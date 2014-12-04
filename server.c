@@ -38,7 +38,8 @@ client_t *clients[MAX_CLIENTS];
 // function prototypes
 void queue_add (client_t *cl, int * dupe);
 void queue_delete (int uid);
-void kick (int auth, int uid); 
+void delete_name (char * name);
+void kick (int auth, char * name);
 void send_message (char *s, int uid);
 void send_message_all (char *s);
 void send_message_self (const char *s, int connfd);
@@ -178,27 +179,62 @@ void queue_delete (int uid)
       }
 }
 
-void kick (const int auth, int uid)
+void delete_name (char * name)
+{
+  int i;
+  for (i = 0; i < cli_count; i++)
+    if (clients[i])
+      if (!strcmp (clients[i]->name, name)) {
+	clients[i] = NULL;
+	return;
+      }
+}
+
+void kick (const int auth, char * name) 
 {
   int low = 50;
   int i;
+
+  // get oldest client
   for (i = 0; i < cli_count; i++) {
-    // get lowest auth
-    if (auth < low)
-      low = auth;
+    if (clients[i]->uid < low)
+      low = clients[i]->uid;
   }
 
-  if (auth == low) {
-    // ok to kick
-    send_message_self ("You have been kicked from the server.\r\n", uid);
-    queue_delete (uid);
-    //free (cli);
-    cli_count--;
-    pthread_detach (pthread_self()); 
+  if (auth == low) {    
+    int yes = 0;
+    int which = 0;
+    for (i = 0; i < cli_count; i++)
+      if (!memcmp (name, clients[i]->name, strlen (name) + 1)) {
+	yes = 1;
+	which = i;
+      }
+    
+    if (yes == 1) {
+      send_message_name ("You have been kicked from the server.\r\n", name);
+      
+      close (clients[which]->connfd);
+      
+      delete_name (name);
+      
+      free (clients[which]);
 
+      char buffer [256]; 
+      sprintf (buffer, "%s has been kicked.\r\n", name);
+      send_message_all (buffer);
+      pthread_detach (pthread_self());
+      return;
+    }
+    else if (yes == 0) {
+      // wasnt a valid client
+      char buffer [256];
+      sprintf (buffer, "Couldn't find user %s. Failed to kick %s\r\n", name, name);
+      send_message_self (buffer, auth);
+      return;
+    }  
   }
   
-  else {
+  else if (auth != low) {
     // send could not kick and return
     send_message_self ("Could not kick, insufficient privileges\r\n", auth);
     return;
@@ -368,17 +404,18 @@ void *handle_client (void *arg)
 
       else if(!strcmp (command, "\\kick")) { // kick someone
 	param = strtok(NULL, " ");
+	
 	if (param) {
-	  char *old_name = strdup (cli->name);
-	  strcpy (cli->name, param);
-	  sprintf (buff_out, "%s is now going by %s\r\n", old_name, cli->name);
-	  free (old_name);
-	  send_message_all (buff_out);
+	  char * who;
+	  who = param;
+	  param = strtok (NULL, " ");
+	  kick (cli->uid, who);	  
 	}
+	
 	else
-	*/
-	send_message_self ("Response: Not yet implemented.\r\n", cli->connfd);
+	  send_message_self ("Response: Name cannot be null\r\n", cli->connfd);
       }
+      
       
       
       else if (!strcmp (command, "\\help")) { // help menu
