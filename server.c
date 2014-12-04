@@ -1,16 +1,20 @@
 // Brad Taylor
 // CS 450
-// December 2014
+// 5 December 2014
+// Chat server in C. Accepts clients on 8910 (or other specified) with a raw or telnet connection.
+// Clients can chat back and forth, private message each other, and kick someone (if the requester
+// is the person who has been connected longest). Server runs in UNIX environment but supports
+// connections from different platforms.
 
-#include <sys/socket.h>
-#include <netinet/in.h>
-#include <arpa/inet.h>
+#include <sys/socket.h> // socket library
+#include <netinet/in.h> // used for sock addresses
+#include <arpa/inet.h> // inet
 #include <stdio.h>
 #include <stdlib.h>
 #include <unistd.h>
 #include <errno.h>
 #include <string.h>
-#include <pthread.h>
+#include <pthread.h> // forking threads
 #include <sys/types.h>
 
 #define MAX_CLIENTS 35
@@ -62,6 +66,7 @@ int main (int argc, char *argv[])
   serv_addr.sin_family = AF_INET;
   serv_addr.sin_addr.s_addr = htonl (INADDR_ANY);
   
+  // get port if specified
   if (argc > 1)
     portNum = atoi (argv[1]);
   
@@ -115,11 +120,15 @@ int main (int argc, char *argv[])
       strip_newline(username);
       memcpy (cli->name, username, strlen (username) + 1);
     }    
+
     int dupe = 0;
-    // add client to queue and fork the thread 
+
+    // add client to queue and fork the thread if not a dupe
     queue_add (cli, &dupe);
+
     if (dupe == 0)
       pthread_create (&tid, NULL, &handle_client, (void*) cli);
+
     else {
       // close and tell to reconnect
       send_message_self ("Username was not unique. Please reconnect.\r\n", cli->connfd);
@@ -181,7 +190,12 @@ void kick (const int auth, int uid)
 
   if (auth == low) {
     // ok to kick
-    
+    send_message_self ("You have been kicked from the server.\r\n", uid);
+    queue_delete (uid);
+    //free (cli);
+    cli_count--;
+    pthread_detach (pthread_self()); 
+
   }
   
   else {
@@ -236,8 +250,8 @@ void send_message_name (char *s, char * name)
 {
   int i;
   for (i = 0; i < cli_count; i++) 
-    if (clients[i])
-      if (!memcmp (clients[i]->name, name, strlen (name) + 1))
+    //    if (clients[i])
+    if (!memcmp (clients[i]->name, name, strlen (name) + 1))
 	write(clients[i]->connfd, s, strlen(s));
 }
 
@@ -324,8 +338,8 @@ void *handle_client (void *arg)
       else if (!strcmp (command, "\\pm")) { // private message
 	param = strtok(NULL, " ");
 	if (param) {
-	  printf("%s", param);
-	  int uid = atoi (param);
+	  char * toWho;
+	  toWho = param;
 	  param = strtok (NULL, " ");	  
 	  if (param) {
 	    sprintf (buff_out, "[PM][%s]", cli->name); // what they'll get
@@ -335,7 +349,9 @@ void *handle_client (void *arg)
 	      param = strtok (NULL, " ");
 	    }
 	    strcat (buff_out, "\r\n");
-	    send_message_client (buff_out, uid);
+	    
+	    // send it
+	    send_message_name (buff_out, toWho);
 	  }
 	  else 
 	    send_message_self ("Response: Message cannot be null\r\n", cli->connfd);
@@ -351,7 +367,7 @@ void *handle_client (void *arg)
       }
 
       else if(!strcmp (command, "\\kick")) { // kick someone
-	/*	param = strtok(NULL, " ");
+	param = strtok(NULL, " ");
 	if (param) {
 	  char *old_name = strdup (cli->name);
 	  strcpy (cli->name, param);
@@ -359,7 +375,8 @@ void *handle_client (void *arg)
 	  free (old_name);
 	  send_message_all (buff_out);
 	}
-	else*/
+	else
+	*/
 	send_message_self ("Response: Not yet implemented.\r\n", cli->connfd);
       }
       
